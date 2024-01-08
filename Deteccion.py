@@ -118,6 +118,7 @@ if len(sys.argv)>=2:
 else:
   # Segunda forma poniendolo en el codigo
   ruta_imagen = directorio+"/imgsTIF/" # EJEMPLO "/imgsTIF/"
+  ruta_imagen = directorio+"/pruebas/Sin problema/" # EJEMPLO "/imgsTIF/"
   # Si queres tomar por ejemplo la imagen 13 de tal carpeta lo pones asi:
   i = 0
   archivo = os.listdir(ruta_imagen)[i] 
@@ -141,8 +142,29 @@ for j in range(imagenL.shape[1]//512):
   for i in range(imagenL.shape[0]//512):
     img = torch.tensor([imagenL[512*i:512*(i+1),512*j:512*(j+1)].tolist()])
     output = modelo_cargado(img.float().unsqueeze(0).to(device))[0]
+    ##Agregado
+    output_probabilities = F.softmax(output, dim=0) # Agregado
+    max_prob, pred_class = torch.max(output_probabilities, dim=0) # Agregado
+    mask_confianza = max_prob > 0.99 #0.5 #0.99 bien # Agregado
+    ##
     pred_mask = torch.argmax(output, axis=0)
+    pred_mask = torch.zeros_like(pred_class)  # Crear un tensor de ceros del mismo tamaño que pred_class # Agregado
+    pred_mask[mask_confianza] = pred_class[mask_confianza]  # Asignar las predicciones que superan el umbral # Agregado
+    #
     pred_all[512*i:512*(i+1),512*j:512*(j+1)] = np.array(pred_mask.tolist())
+
+#### AGREGADO para visualizar (Se eliminara en la ultima version)
+"""#Img Real
+import matplotlib.pyplot as plt
+plt.figure(figsize=(8, 6))
+plt.subplot(1,2,1)
+plt.imshow(imagenL[0:width,0:height],cmap="gray")
+#Img Pred 
+plt.subplot(1,2,2)
+plt.imshow(pred_all[0:width,0:height],cmap="gray")
+plt.show()"""
+###############
+
 
 #####################
 #Buscamos los contornos
@@ -204,6 +226,13 @@ try:
   pol_x = [poligonos[i][:,0] for i in range(len(poligonos))]
   pol_y = [poligonos[i][:,1] for i in range(len(poligonos))]
 
+  #### AGREGADO para visualizar (Se eliminara en la ultima version)
+  """plt.figure(figsize=(6, 6))
+  for i in range(len(pol_x)):
+    plt.fill(pol_x[i], pol_y[i], alpha=0.3)
+  plt.show()"""
+  #########
+
   # Transformamos para que vaya a una coordenada en el mapa
   poligono_x,poligono_y = toCoords(imagen,pol_x,pol_y)[0],toCoords(imagen,pol_x,pol_y)[1]
 
@@ -226,13 +255,16 @@ try:
       "name": "Ejemplo punto"
     }
   }
-
   ## Creacion GEOJSON
   geojson_data = json.dumps(data)
   # Crea un GeoDataFrame a partir del GeoJSON
   gdf = gpd.GeoDataFrame.from_features([json.loads(geojson_data)])
   #Guardamos en la carpeta polygons
+  print(archivo)
+  if "/" in archivo:
+     archivo = archivo.split("/")[-1].replace(".tif","")
   gdf.to_file(directorio+"/polygons/"+archivo+"_polygon.geojson", driver="GeoJSON")
+
 
 except:
   print("No se encontro poligonos")
