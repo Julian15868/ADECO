@@ -19,9 +19,11 @@ from joblib import dump, load
 # Nuevos
 import json
 import geopandas as gpd
+import matplotlib.pyplot as plt
+import cv2
 #####################
 ## Comandos
-tolerancia = 5 # La que estuvo hasta ahora -> A mayor tolerancia, mas cuadriculado
+tolerancia = 2 # La que estuvo hasta ahora -> A mayor tolerancia, mas cuadriculado
 
 ## Para que el modelo que carguemos funcione, necesitamos saber como es la estructura de la red neuronal, para eso agregamos lo siguiente
 def conv3x3_bn(ci, co):
@@ -118,25 +120,145 @@ if len(sys.argv)>=2:
 else:
   # Segunda forma poniendolo en el codigo
   ruta_imagen = directorio+"/imgsTIF/" # EJEMPLO "/imgsTIF/"
+  #ruta_imagen = directorio+"/pruebas/Facil/" # EJEMPLO "/imgsTIF/"
+  #ruta_imagen = directorio+"/imgsTIF3/"
   # Si queres tomar por ejemplo la imagen 13 de tal carpeta lo pones asi:
-  i = 0
+  ####A BORRAR
+  #i = np.random.randint(0,379)
+  i = 10
+  print(i)
+  ####
+  
   archivo = os.listdir(ruta_imagen)[i] 
   # Y si no pones el nombre de tu archivo: (Descomentar la linea de abajo)
   #archivo = dma_203_20221215.tif
   imagen =  rasterio.open(ruta_imagen+archivo)
 
 ## Ahora hacemos las modificaciones de la imagen para que el modelo la tome bien
-imagenL = imagen.read(2)
-imagenL = imagenL/255
+imagenL = imagen.read(2) # 2 actual
+#imagenL = imagenL/255
+imagenL = imagenL/np.max(imagenL)
 # Tamaño real de la imagen
 width = imagenL.shape[0]
 height = imagenL.shape[1]
+
+
 # Hacemos una imagen de zero, expandiendo el tamaño de la imagen original para que sea divisible por 512
 imagenL = np.hstack((imagenL, np.zeros((imagenL.shape[0],512-imagenL.shape[1]%512))))
 imagenL = np.vstack((imagenL, np.zeros((512-imagenL.shape[0]%512,imagenL.shape[1]))))
 pred_all = np.zeros((imagenL.shape[0],imagenL.shape[1])) 
 
-# Aca vamos guardando las predicciones de la imagen
+#######################################
+#  PRIMERO DETECTAMOS LOS BORDES SIN HABER HECHO NINGUNA TRANSFORMACION!
+bordes = cv2.Canny((imagenL*255).astype(np.uint8) , 120, 150)  # Ajusta los umbrales según tu imagen (100,150)
+# Definir el kernel para dilatación
+kernel = np.ones((4, 4), np.uint8) #########################(4,4)
+# Aplicar dilatación a los bordes detectados
+bordes_dilatados = cv2.dilate(bordes, kernel, iterations=1)
+# Mostrar los bordes detectados y dilatados
+#cv2.imshow('Bordes dilatados', bordes_dilatados)
+#cv2.waitKey(0)
+#cv2.destroyAllWindows()
+
+imagen_sin_bordes = cv2.bitwise_and(imagenL, imagenL, mask=cv2.bitwise_not(bordes_dilatados))
+#plt.imshow(imagen_sin_bordes,cmap="gray")
+#plt.show()
+#####################################
+
+## IMAGEN DESVIO STANDARD # ELIMINAR->>_>_>--<
+#sobreTierraLista = np.array([x for row in imagenL for x in row if x != 0])
+sobreTierraLista = np.array([x for row in imagen_sin_bordes for x in row if x != 0]) # DESVIO STGANDARD EN LA IMAGEN SIN BORDES
+
+media = np.mean(sobreTierraLista)
+std = np.std(sobreTierraLista)
+##print(media,"<<>>",std,"<<>>",round(100*std/media,1))
+##print(len(sobreTierraLista))
+
+### Imagen Difuminada
+mask = np.where(imagenL != 0, 255, 0).astype('uint8')
+imagen_difuminada = cv2.blur(imagenL, (13, 13))
+imagen_difuminada = cv2.bitwise_and(imagen_difuminada, imagen_difuminada, mask=mask)
+
+#cv2.imshow('Imagen Difuminada', imagen_difuminada)
+#cv2.waitKey(0)
+#cv2.destroyAllWindows()
+####
+
+#STAD
+if std < 0.1:
+   factor = 1.7
+else:
+   factor = 0.1
+imagenNueva = [[1 if x>(media+factor*std) else 0 for x in row] for row in imagen_difuminada] # 0.5 es bueno
+#imagenNueva = [[1 if x>(media+3*std) else 0 for x in row] for row in imagenL] # PARa imagenes <10
+##plt.subplot(1,3,1)
+##plt.imshow(imagenL,cmap="gray")
+#plt.subplot(1,4,2)
+#plt.imshow(imagenNueva,cmap="gray")
+imagenLatente = imagenNueva.copy() # Une puntos sueltos si tienen cierta cantida de vecinos
+
+for i in range(len(imagenNueva)):
+    for j in range(len(imagenNueva[0])):
+        contador = 0
+        for x, y in zip([-1, -1, 0, 1, 1, 1, 0, -1], [0, -1, -1, -1, 0, 1, 1, 1]): # todas las direcciones(vecinos)
+            if 0 <= i + x < len(imagenNueva) and 0 <= j + y < len(imagenNueva[0]):
+                if imagenNueva[i + x][j + y] == 1:
+                    contador += 1
+        if contador>4:
+           imagenLatente[i][j] = 1
+
+#plt.subplot(1,4,3)
+imagenNueva = imagenLatente
+#plt.imshow(imagenNueva,cmap="gray")
+      
+#plt.show()
+##############
+################ A ELIMINAR TAMBIEN
+
+import cv2
+# Convertir la matriz en una imagen binaria (0 o 255)
+matriz_imagen = np.array(imagenNueva).astype(np.uint8) * 255
+# Aplicar detector de bordes Canny
+edges = cv2.Canny(matriz_imagen, 0, 150)
+# Aplicar transformada de Hough para detectar líneas
+##lines = cv2.HoughLinesP(edges, 2, np.pi / 180, threshold=80, minLineLength=15, maxLineGap=100) # cambiar el segundo argumento cambia todo, el maxilineGap tambien, 2 np,60,15,100
+#lines = cv2.HoughLinesP(edges, 1, 10*np.pi / 180, threshold=100, minLineLength=30, maxLineGap=70) # cambiar el segundo argumento cambia todo, el maxilineGap tambien, 2 np,60,15,100 # para imagenes <13
+
+lines = cv2.HoughLinesP(edges, 2, np.pi / 1500, threshold=71, minLineLength=44, maxLineGap=12)
+
+
+# Crear una imagen en blanco y negro del mismo tamaño que la original
+lineas_eliminar = np.zeros_like(matriz_imagen)
+# Dibujar las líneas detectadas en la máscara
+if lines is not None:
+    for linea in lines:
+        x1, y1, x2, y2 = linea[0]
+        cv2.line(lineas_eliminar, (x1, y1), (x2, y2), 255, 7)  # Dibujar la línea en blanco # (255,8)
+# Invertir la máscara de líneas (donde hay líneas será 0 y viceversa)
+lineas_eliminar = cv2.bitwise_not(lineas_eliminar)
+# Aplicar la máscara para eliminar las líneas de la imagen original
+dibujos_sin_lineas = cv2.bitwise_and(matriz_imagen, lineas_eliminar)
+
+##dibujos_sin_lineas = matriz_imagen
+
+
+# Operaciones de morfología para eliminar puntos sueltos
+kernel = np.ones((5, 5), np.uint8) #4,4 5.5 ## (9,9)
+#dibujos_sin_lineas = cv2.morphologyEx(dibujos_sin_lineas, cv2.MORPH_CLOSE, kernel)
+dibujos_sin_lineas = cv2.morphologyEx(dibujos_sin_lineas, cv2.MORPH_OPEN, kernel)
+
+dibujos_sin_lineas = cv2.bitwise_and(dibujos_sin_lineas, dibujos_sin_lineas, mask=cv2.bitwise_not(bordes_dilatados))############------------------
+# Mostrar el resultado
+##plt.subplot(1,3,2)
+##plt.imshow(dibujos_sin_lineas,cmap="gray")
+#plt.show()
+
+
+
+
+
+############## Desactivamos modelo anterior
+"""# Aca vamos guardando las predicciones de la imagen
 for j in range(imagenL.shape[1]//512):
   for i in range(imagenL.shape[0]//512):
     img = torch.tensor([imagenL[512*i:512*(i+1),512*j:512*(j+1)].tolist()])
@@ -150,7 +272,7 @@ for j in range(imagenL.shape[1]//512):
     pred_mask = torch.zeros_like(pred_class)  # Crear un tensor de ceros del mismo tamaño que pred_class # Agregado
     pred_mask[mask_confianza] = pred_class[mask_confianza]  # Asignar las predicciones que superan el umbral # Agregado
     #
-    pred_all[512*i:512*(i+1),512*j:512*(j+1)] = np.array(pred_mask.tolist())
+    pred_all[512*i:512*(i+1),512*j:512*(j+1)] = np.array(pred_mask.tolist())"""
 
 #### AGREGADO para visualizar (Se eliminara en la ultima version)
 """#Img Real
@@ -164,7 +286,8 @@ plt.imshow(pred_all[0:width,0:height],cmap="gray")
 plt.show()"""
 ###############
 
-
+###ACTIVAMOS MODEL NUEVO
+pred_all = dibujos_sin_lineas
 #####################
 #Buscamos los contornos
 contornos = measure.find_contours(pred_all[0:width,0:height], 0)#pred_mask
@@ -226,10 +349,11 @@ try:
   pol_y = [poligonos[i][:,1] for i in range(len(poligonos))]
 
   #### AGREGADO para visualizar (Se eliminara en la ultima version)
-  """plt.figure(figsize=(6, 6))
+  ##plt.subplot(1,3,3)
+  plt.imshow(imagenL.T,cmap="gray")
   for i in range(len(pol_x)):
-    plt.fill(pol_x[i], pol_y[i], alpha=0.3)
-  plt.show()"""
+    plt.fill(pol_x[i], pol_y[i], alpha=0.8)
+  plt.show()
   #########
 
   # Transformamos para que vaya a una coordenada en el mapa
