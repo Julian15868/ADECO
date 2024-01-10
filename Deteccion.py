@@ -108,8 +108,8 @@ def toCoords(image,geo_coord_x,geo_coord_y):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 modelo_cargado = torch.load("modeloDeteccion.pth",map_location=torch.device('cpu'))  #"modeloDeteccion.pth" -> ACA SE ACTUALIZA CON EL NOMBRE DEL ULTIMO MODELO RECIBIDO
 
-
-## Cargamos la imagen estando en el directorio actual
+#for h in range(110,130):
+  ## Cargamos la imagen estando en el directorio actual
 directorio = os.getcwd() 
 # Primera forma, pasando como argumento
 if len(sys.argv)>=2:
@@ -192,18 +192,30 @@ if std < 0.1:
 else:
   factor = 0.1
 
-if ((media < 0.25) and (var_relativa>17)):
-  if var_relativa>17:
+if media < 0.25:
+  if var_relativa>20.5:
     factor = 0.1
+    if var_relativa>40:
+        factor = 1.4
   if std < 0.08: # imagen negra con poco colores blancos
-    factor = 1
+    factor = 1-(var_relativa/100)*0.5 # NUEVO -> VER SI FUNCIONA SIEMPRE, SI NO HACER QUE SI VAR_RELATIVA > 60: factor = 0.7
 
 if (media > 0.5):
   if (var_relativa > 20):  # FIJARSE QUE QUIZAS  no solo >20 puede ser >10 tambien
     factor = -0.3
+  if var_relativa <= 20:
+    factor = 0.25 
   if (media > 0.70): # PARA IMAGENES MUY BLANCAS
-    if(var_relativa > 10):
+    if(var_relativa > 7):
         factor = -1
+
+if ((media >= 0.25) and (media <=0.5)):
+  if var_relativa < 25: # Le aumente 5, esta bien?
+      factor = 0.251  
+  if var_relativa < 14:
+      factor = 0.6 +2*(var_relativa/100) # NUEVO VER SI FUNCIONA-.>>>>>>>
+  if std > 0.04:
+      factor = 0.9
 #######
         
 #print("Factor: ",factor)
@@ -370,7 +382,7 @@ try:
   #plt.subplot(1,3,3)
   #plt.imshow(imagenL.T,cmap="gray")
   #for i in range(len(pol_x)):
-    #plt.fill(pol_x[i], pol_y[i], alpha=0.8)
+  #  plt.fill(pol_x[i], pol_y[i], alpha=0.8)
   #plt.show()
   #########
 
@@ -401,7 +413,7 @@ try:
   # Crea un GeoDataFrame a partir del GeoJSON
   gdf = gpd.GeoDataFrame.from_features([json.loads(geojson_data)])
   #Guardamos en la carpeta polygons
-  print(archivo)
+  #print(archivo)
   if "/" in archivo:
     archivo = archivo.split("/")[-1].replace(".tif","")
   gdf.to_file(directorio+"/polygons/"+archivo+"_polygon.geojson", driver="GeoJSON")
