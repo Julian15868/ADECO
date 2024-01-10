@@ -19,8 +19,6 @@ from joblib import dump, load
 # Nuevos
 import json
 import geopandas as gpd
-import matplotlib.pyplot as plt
-import cv2
 #####################
 ## Comandos
 tolerancia = 2 # La que estuvo hasta ahora -> A mayor tolerancia, mas cuadriculado
@@ -110,13 +108,14 @@ def toCoords(image,geo_coord_x,geo_coord_y):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 modelo_cargado = torch.load("modeloDeteccion.pth",map_location=torch.device('cpu'))  #"modeloDeteccion.pth" -> ACA SE ACTUALIZA CON EL NOMBRE DEL ULTIMO MODELO RECIBIDO
 
+
 ## Cargamos la imagen estando en el directorio actual
 directorio = os.getcwd() 
 # Primera forma, pasando como argumento
 if len(sys.argv)>=2:
-   archivo = sys.argv[1]
-   imagen =  rasterio.open(directorio+"//"+archivo)
-   print(directorio+"/"+archivo)
+  archivo = sys.argv[1]
+  imagen =  rasterio.open(directorio+"//"+archivo)
+  print(directorio+"/"+archivo)
 else:
   # Segunda forma poniendolo en el codigo
   ruta_imagen = directorio+"/imgsTIF/" # EJEMPLO "/imgsTIF/"
@@ -125,7 +124,7 @@ else:
   # Si queres tomar por ejemplo la imagen 13 de tal carpeta lo pones asi:
   ####A BORRAR
   #i = np.random.randint(0,379)
-  i = 10
+  i = 0
   print(i)
   ####
   
@@ -150,11 +149,13 @@ pred_all = np.zeros((imagenL.shape[0],imagenL.shape[1]))
 
 #######################################
 #  PRIMERO DETECTAMOS LOS BORDES SIN HABER HECHO NINGUNA TRANSFORMACION!
-bordes = cv2.Canny((imagenL*255).astype(np.uint8) , 120, 150)  # Ajusta los umbrales según tu imagen (100,150)
+import matplotlib.pyplot as plt
+import cv2
+bordes = cv2.Canny((imagenL*255).astype(np.uint8) , 140, 160)  # Ajusta los umbrales según tu imagen (100,150) ## 120 150
 # Definir el kernel para dilatación
-kernel = np.ones((4, 4), np.uint8) #########################(4,4)
+kernel = np.ones((2, 2), np.uint8) #########################(4,4) (2,2)
 # Aplicar dilatación a los bordes detectados
-bordes_dilatados = cv2.dilate(bordes, kernel, iterations=1)
+bordes_dilatados = cv2.dilate(bordes, kernel, iterations=3)
 # Mostrar los bordes detectados y dilatados
 #cv2.imshow('Bordes dilatados', bordes_dilatados)
 #cv2.waitKey(0)
@@ -171,8 +172,9 @@ sobreTierraLista = np.array([x for row in imagen_sin_bordes for x in row if x !=
 
 media = np.mean(sobreTierraLista)
 std = np.std(sobreTierraLista)
-##print(media,"<<>>",std,"<<>>",round(100*std/media,1))
-##print(len(sobreTierraLista))
+var_relativa = round(100*std/media,1)
+#print(media,"<<>>",std,"<<>>",var_relativa)
+#print(len(sobreTierraLista))
 
 ### Imagen Difuminada
 mask = np.where(imagenL != 0, 255, 0).astype('uint8')
@@ -184,15 +186,31 @@ imagen_difuminada = cv2.bitwise_and(imagen_difuminada, imagen_difuminada, mask=m
 #cv2.destroyAllWindows()
 ####
 
-#STAD
+## ARBOL DE DECISIONES ##
 if std < 0.1:
-   factor = 1.7
+  factor = 1.7
 else:
-   factor = 0.1
+  factor = 0.1
+
+if ((media < 0.25) and (var_relativa>17)):
+  if var_relativa>17:
+    factor = 0.1
+  if std < 0.08: # imagen negra con poco colores blancos
+    factor = 1
+
+if (media > 0.5):
+  if (var_relativa > 20):  # FIJARSE QUE QUIZAS  no solo >20 puede ser >10 tambien
+    factor = -0.3
+  if (media > 0.70): # PARA IMAGENES MUY BLANCAS
+    if(var_relativa > 10):
+        factor = -1
+#######
+        
+#print("Factor: ",factor)
 imagenNueva = [[1 if x>(media+factor*std) else 0 for x in row] for row in imagen_difuminada] # 0.5 es bueno
 #imagenNueva = [[1 if x>(media+3*std) else 0 for x in row] for row in imagenL] # PARa imagenes <10
-##plt.subplot(1,3,1)
-##plt.imshow(imagenL,cmap="gray")
+#plt.subplot(1,3,1)
+#plt.imshow(imagenL,cmap="gray")
 #plt.subplot(1,4,2)
 #plt.imshow(imagenNueva,cmap="gray")
 imagenLatente = imagenNueva.copy() # Une puntos sueltos si tienen cierta cantida de vecinos
@@ -205,7 +223,7 @@ for i in range(len(imagenNueva)):
                 if imagenNueva[i + x][j + y] == 1:
                     contador += 1
         if contador>4:
-           imagenLatente[i][j] = 1
+          imagenLatente[i][j] = 1
 
 #plt.subplot(1,4,3)
 imagenNueva = imagenLatente
@@ -219,7 +237,7 @@ import cv2
 # Convertir la matriz en una imagen binaria (0 o 255)
 matriz_imagen = np.array(imagenNueva).astype(np.uint8) * 255
 # Aplicar detector de bordes Canny
-edges = cv2.Canny(matriz_imagen, 0, 150)
+edges = cv2.Canny(matriz_imagen, 0, 150) #0,150
 # Aplicar transformada de Hough para detectar líneas
 ##lines = cv2.HoughLinesP(edges, 2, np.pi / 180, threshold=80, minLineLength=15, maxLineGap=100) # cambiar el segundo argumento cambia todo, el maxilineGap tambien, 2 np,60,15,100
 #lines = cv2.HoughLinesP(edges, 1, 10*np.pi / 180, threshold=100, minLineLength=30, maxLineGap=70) # cambiar el segundo argumento cambia todo, el maxilineGap tambien, 2 np,60,15,100 # para imagenes <13
@@ -233,7 +251,7 @@ lineas_eliminar = np.zeros_like(matriz_imagen)
 if lines is not None:
     for linea in lines:
         x1, y1, x2, y2 = linea[0]
-        cv2.line(lineas_eliminar, (x1, y1), (x2, y2), 255, 7)  # Dibujar la línea en blanco # (255,8)
+        cv2.line(lineas_eliminar, (x1, y1), (x2, y2), 255, 15)  # Dibujar la línea en blanco # (255,8) # ESTABA EN 7 pero en 15 funciona re bien
 # Invertir la máscara de líneas (donde hay líneas será 0 y viceversa)
 lineas_eliminar = cv2.bitwise_not(lineas_eliminar)
 # Aplicar la máscara para eliminar las líneas de la imagen original
@@ -243,14 +261,14 @@ dibujos_sin_lineas = cv2.bitwise_and(matriz_imagen, lineas_eliminar)
 
 
 # Operaciones de morfología para eliminar puntos sueltos
-kernel = np.ones((5, 5), np.uint8) #4,4 5.5 ## (9,9)
+kernel = np.ones((9, 9), np.uint8) #4,4 5.5 ## (9,9) #(5, 5) # DEPENDE LA FORMA PONEMOS 9, 9 en vez de 5,5
 #dibujos_sin_lineas = cv2.morphologyEx(dibujos_sin_lineas, cv2.MORPH_CLOSE, kernel)
 dibujos_sin_lineas = cv2.morphologyEx(dibujos_sin_lineas, cv2.MORPH_OPEN, kernel)
 
 dibujos_sin_lineas = cv2.bitwise_and(dibujos_sin_lineas, dibujos_sin_lineas, mask=cv2.bitwise_not(bordes_dilatados))############------------------
 # Mostrar el resultado
-##plt.subplot(1,3,2)
-##plt.imshow(dibujos_sin_lineas,cmap="gray")
+#plt.subplot(1,3,2)
+#plt.imshow(dibujos_sin_lineas,cmap="gray")
 #plt.show()
 
 
@@ -349,11 +367,11 @@ try:
   pol_y = [poligonos[i][:,1] for i in range(len(poligonos))]
 
   #### AGREGADO para visualizar (Se eliminara en la ultima version)
-  ##plt.subplot(1,3,3)
-  plt.imshow(imagenL.T,cmap="gray")
-  for i in range(len(pol_x)):
-    plt.fill(pol_x[i], pol_y[i], alpha=0.8)
-  plt.show()
+  #plt.subplot(1,3,3)
+  #plt.imshow(imagenL.T,cmap="gray")
+  #for i in range(len(pol_x)):
+    #plt.fill(pol_x[i], pol_y[i], alpha=0.8)
+  #plt.show()
   #########
 
   # Transformamos para que vaya a una coordenada en el mapa
@@ -385,7 +403,7 @@ try:
   #Guardamos en la carpeta polygons
   print(archivo)
   if "/" in archivo:
-     archivo = archivo.split("/")[-1].replace(".tif","")
+    archivo = archivo.split("/")[-1].replace(".tif","")
   gdf.to_file(directorio+"/polygons/"+archivo+"_polygon.geojson", driver="GeoJSON")
 
 
