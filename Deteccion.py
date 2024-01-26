@@ -120,7 +120,7 @@ if len(sys.argv)>=2:
 else:
   # Segunda forma poniendolo en el codigo
   ruta_imagen = directorio+"/imgsTIF3/" # EJEMPLO "/imgsTIF/"
-  ruta_imagen = directorio+"/pruebas/Facil/" 
+  #ruta_imagen = directorio+"/pruebas/Facil/" 
   i = 0
   #print(i) ----------------------------------->>>>
   archivo = os.listdir(ruta_imagen)[i] 
