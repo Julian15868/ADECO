@@ -119,8 +119,8 @@ if len(sys.argv)>=2:
   print(directorio+"/"+archivo)
 else:
   # Segunda forma poniendolo en el codigo
-  ruta_imagen = directorio+"/imgsTIF/" # EJEMPLO "/imgsTIF/"
-  #ruta_imagen = directorio+"/pruebas/Facil/" 
+  ruta_imagen = directorio+"/imgsTIF3/" # EJEMPLO "/imgsTIF/"
+  ruta_imagen = directorio+"/pruebas/Facil/" 
   i = 0
   #print(i) ----------------------------------->>>>
   archivo = os.listdir(ruta_imagen)[i] 
@@ -138,7 +138,6 @@ imagenL = imagenL/(np.max(imagenL)+0.001)
 width = imagenL.shape[0]
 height = imagenL.shape[1]
 
-
 # Hacemos una imagen de zero, expandiendo el tamaño de la imagen original para que sea divisible por 512
 imagenL = np.hstack((imagenL, np.zeros((imagenL.shape[0],512-imagenL.shape[1]%512))))
 imagenL = np.vstack((imagenL, np.zeros((512-imagenL.shape[0]%512,imagenL.shape[1]))))
@@ -154,9 +153,9 @@ bordes_ensanchados[0:,0:2] = 255; bordes_ensanchados[0:,-2:] = 255
 bordes_ensanchados = bordes_ensanchados.astype(np.float32)/255
 
 #
-#plt.imshow(bordes_ensanchados, cmap='gray')----------------------------------->>>> 
-#plt.title('Máscara de Contornos') ----------------------------------->>>> 
-#plt.show() ----------------------------------->>>>
+#plt.imshow(bordes_ensanchados, cmap='gray')#----------------------------------->>>> 
+#plt.title('Máscara de Contornos') #----------------------------------->>>> 
+#plt.show() #----------------------------------->>>>
 
 pred_all = np.zeros((imagenL.shape[0],imagenL.shape[1])) 
 #######################################
@@ -165,15 +164,20 @@ for j in range(imagenL.shape[1]//512):
   for i in range(imagenL.shape[0]//512):
     img = torch.tensor([imagenL[512*i:512*(i+1),512*j:512*(j+1)].tolist()]) #IMAGENL->imagen_sin_bordes
     output = modelo_cargado(img.float().unsqueeze(0).to(device))[0]
-    pred_mask = (torch.tanh(img.float()) > 0.41).float() # 0.35 bueno #0.45
+    pred_mask = (torch.tanh(img.float()) > 0.41).float() # 0.35 bueno #0.45 y 41
     #
     pred_all[512*i:512*(i+1),512*j:512*(j+1)] = np.array(pred_mask.tolist())
-#plt.subplot(1,3,1) ----------------------------------->>>>
-#plt.imshow(imagenL,cmap="gray") ----------------------------------->>>>
-#plt.subplot(1,3,2) ----------------------------------->>>>
-pred_all = cv2.subtract((pred_all*255).astype(np.uint8), (bordes_ensanchados*255).astype(np.uint8)) # CAMBIADO
+pred_all[0:2, :height] = 0
+pred_all[width-2:width, :height] = 0
+pred_all[:width, 0:2] = 0  
+pred_all[:width, height-2:height] = 0
 pred_all = pred_all.astype(np.float32)/255
-#plt.imshow(pred_all,cmap="gray") ----------------------------------->>>>
+#plt.subplot(1,3,1) #----------------------------------->>>>
+#plt.imshow(imagenL,cmap="gray") #----------------------------------->>>>
+#plt.subplot(1,3,2) #----------------------------------->>>>
+pred_all = np.subtract(pred_all, bordes_ensanchados)
+#plt.imshow(pred_all,cmap="gray") #----------------------------------->>>>
+
 
 """maskLatente = pred_all.copy()
 for i in range(len(pred_all)):
@@ -186,8 +190,9 @@ for i in range(len(pred_all)):
         if contador>4:
           maskLatente[i][j] = 1
         else:
-          maskLatente[i][j] = 0"""
-
+          maskLatente[i][j] = 0
+pred_all = maskLatente.copy()
+"""
 
 ###ACTIVAMOS MODEL NUEVO
 #red_all = dibujos_sin_lineas
@@ -204,6 +209,7 @@ for i, p1 in enumerate(contornos):
             contiene_otro = True
             break
     if not contiene_otro:  # Si p1 no esta contenido en ningun otro, lo agregamos a la lista
+      if contornos[i].area > 100:
         poligonos_filtrados.append(contornos[i])#poligonos
 
 # Dibujamos los contornos encontrados
@@ -217,10 +223,11 @@ for contour in poligonos_filtrados:
 #####################
 # Limpiamos el poligono (descartamos los poligonos que tengan menos de 3 vertices)
 pol_limpio = [pol for pol in poligonos if len(pol) > 2]
+#print(pol_limpio) # a veces muy largo
 
 try:
   # Unimos los poligonos que se interecan
-  poligonos = []
+  """poligonos = []
   multi_poligono = MultiPolygon()
   pol_unidos = poligonos_filtrados[0] #Empezamos viendo el primero
   pol_descartados = []
@@ -236,23 +243,23 @@ try:
     try:
       multi_poligono = multi_poligono.union(pol_descartados[h])
     except:
-      continue
+      continue"""
   # Segun la tolerancia se simplifica el poligono
-  #plt.subplot(1,3,3) ----------------------------------->>>>
-  #plt.imshow(imagenL[0:width,0:height],cmap="gray") ----------------------------------->>>>
-  for pols in multi_poligono.geoms:
+  #plt.subplot(1,3,3) #----------------------------------->>>>
+  #plt.imshow(imagenL[0:width,0:height],cmap="gray") #----------------------------------->>>>
+  for pols in poligonos_filtrados: # aca cambie multi_poligono.geoms a poligonos_filtrados ->LAST
     try:
       coords = pols.exterior.coords  # Obtener las coordenadas del contorno
       coords_np = np.array(coords)  # A numpy
       simplified_contour = approximate_polygon(coords_np, tolerance=tolerancia) 
       poligonos.append(simplified_contour)
-      #plt.fill(simplified_contour[:, 1], simplified_contour[:, 0], linewidth=1, color='blue',alpha=0.5) ----------------------------------->>>>
-      #plt.tight_layout()  ----------------------------------->>>>
+      plt.fill(simplified_contour[:, 1], simplified_contour[:, 0], linewidth=1, color='blue',alpha=0.5) #----------------------------------->>>>
     except:
       continue
-  #plt.show() ----------------------------------->>>>
+  #plt.tight_layout()  #----------------------------------->>>>
+  #plt.show() #----------------------------------->>>>
   
-  
+
   # Lo ponemos en las coordenadas que tiene la meta data de la imagen tif
   poligonos = pol_limpio # Esto no tiene sentido
   pol_x = [poligonos[i][:,0] for i in range(len(poligonos))]
@@ -289,7 +296,7 @@ try:
   if "/" in archivo:
     archivo = archivo.split("/")[-1].replace(".tif","")
   gdf.to_file(directorio+"/polygons/"+archivo+"_polygon.geojson", driver="GeoJSON")
-
+  print("Se ha guardado el poligono")
 
 except:
-  print("No se encontro poligonos")
+  print("No se encontro poligono")
